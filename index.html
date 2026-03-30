@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>りゅりゅ - ミニゲームラウンジ</title>
+    <style>
+        /* カスタムフォントの読み込み (実際のフォントファイルのパスを指定してください) */
+        @font-face {
+            font-family: 'WRCCleanBold';
+            src: url('fonts/WRCCleanBold.woff2') format('woff2'),
+                 url('fonts/WRCCleanBold.ttf') format('truetype');
+        }
+
+        :root {
+            --primary: #4A90E2;
+            --bg: #F5F7FA;
+            --text: #333;
+            --card-bg: #FFFFFF;
+            --gold: #FFD700;
+            --light-blue: #00BFFF;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            background: var(--card-bg);
+            width: 100%;
+            max-width: 500px;
+            min-height: 100vh;
+            padding: 2rem;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            position: relative;
+        }
+
+        @media (min-width: 500px) {
+            .container {
+                min-height: auto;
+                border-radius: 12px;
+            }
+        }
+
+        h1 { text-align: center; margin-bottom: 2rem; color: var(--primary); }
+        h2 { margin-bottom: 1rem; font-size: 1.2rem; border-bottom: 2px solid var(--bg); padding-bottom: 0.5rem; }
+
+        input {
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 1rem;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            font-size: 1rem;
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: opacity 0.2s;
+            margin-bottom: 0.5rem;
+        }
+
+        button:hover { opacity: 0.9; }
+        button:disabled { background-color: #ccc; cursor: not-allowed; }
+
+        .screen { display: none; }
+        .screen.active { display: block; }
+
+        /* タイマー用フォント設定 */
+        .timer-display {
+            font-family: 'WRCCleanBold', sans-serif;
+            font-size: 2.5rem;
+            text-align: center;
+            margin: 1rem 0;
+            color: var(--primary);
+        }
+
+        /* プレイヤーリスト */
+        .player-list { list-style: none; margin-bottom: 1rem; }
+        .player-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            background: var(--bg);
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+        }
+
+        .role-icon { margin-left: 5px; }
+        .icon-admin { color: var(--gold); font-weight: bold; }
+        .icon-verified { color: var(--light-blue); font-weight: bold; }
+
+        /* 設定ボタンと隠し管理者ボタン */
+        #settings-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: none;
+            color: var(--text);
+            width: auto;
+            font-size: 1.5rem;
+        }
+        
+        #hidden-admin-btn {
+            background: none;
+            color: rgba(0,0,0,0.05); /* 非常に薄い色 */
+            font-size: 0.8rem;
+            padding: 5px;
+            margin-top: 2rem;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <button id="settings-btn">⚙️</button>
+
+    <div id="login-screen" class="screen active">
+        <h1>りゅりゅ</h1>
+        <input type="text" id="username-input" placeholder="名前を入力してください">
+        <input type="text" id="pin-input" placeholder="5桁のPINを入力 (ホストから共有)" maxlength="5">
+        <button id="join-btn">接続する</button>
+
+        <button id="hidden-admin-btn">私は管理者です</button>
+    </div>
+
+    <div id="lobby-screen" class="screen">
+        <h1>ロビー</h1>
+        <div id="pin-generation-area" style="display: none; margin-bottom: 1rem;">
+            <button id="generate-pin-btn" style="background-color: #2ECC71;">新しいPINを作成 (部屋を作る)</button>
+            <p id="current-pin-display" style="text-align: center; font-weight: bold; font-size: 1.2rem;"></p>
+        </div>
+
+        <h2>プレイヤー一覧</h2>
+        <ul id="players-ul" class="player-list">
+            </ul>
+
+        <h2>ゲーム選択 (ホスト専用)</h2>
+        <button id="start-jinrou-btn" disabled>人狼ゲームを開始</button>
+        <button id="start-ngword-btn" disabled>NGワードゲームを開始</button>
+    </div>
+
+    <div id="game-screen" class="screen">
+        <h1 id="game-title">ゲーム画面</h1>
+        <div class="timer-display" id="game-timer">00:00</div>
+        <div id="game-content">
+            </div>
+        <button id="back-to-lobby-btn" style="background-color: #E74C3C; margin-top: 20px;">ロビーに戻る</button>
+    </div>
+</div>
+
+<script>
+    // --- 状態管理 ---
+    let appState = {
+        user: {
+            name: '',
+            role: 'guest', // 'guest', 'verified', 'admin'
+        },
+        currentPin: null,
+        players: [] // { name: '', role: '' }
+    };
+
+    // --- LocalStorage の読み書き ---
+    function saveState() {
+        localStorage.setItem('ryuryu_data', JSON.stringify(appState));
+    }
+
+    function loadState() {
+        const saved = localStorage.getItem('ryuryu_data');
+        if (saved) {
+            appState = JSON.parse(saved);
+        }
+    }
+
+    // 初期化
+    loadState();
+
+    // --- UI要素 ---
+    const screens = {
+        login: document.getElementById('login-screen'),
+        lobby: document.getElementById('lobby-screen'),
+        game: document.getElementById('game-screen')
+    };
+
+    function showScreen(screenName) {
+        Object.values(screens).forEach(s => s.classList.remove('active'));
+        screens[screenName].classList.add('active');
+        if(screenName === 'lobby') updateLobbyUI();
+    }
+
+    // --- イベントリスナー ---
+
+    // 接続ボタン
+    document.getElementById('join-btn').addEventListener('click', () => {
+        const name = document.getElementById('username-input').value.trim();
+        const pin = document.getElementById('pin-input').value.trim();
+        
+        if (!name) return alert('名前を入力してください');
+        if (pin.length !== 5 && appState.user.role === 'guest') {
+            return alert('5桁のPINを入力してください');
+        }
+
+        appState.user.name = name;
+        appState.currentPin = pin;
+        
+        // P2P通信の実装時は、ここでPINを使ってシグナリングサーバーへ接続します
+        // 今回はUIのモックとして自分をリストに追加
+        appState.players = [{ name: appState.user.name, role: appState.user.role }];
+        
+        saveState();
+        showScreen('lobby');
+    });
+
+    // 隠し管理者ボタン
+    document.getElementById('hidden-admin-btn').addEventListener('click', () => {
+        const pass = prompt('管理者パスワードを入力してください:');
+        if (pass === '999999999') {
+            appState.user.role = 'admin';
+            saveState();
+            alert('管理者権限を取得しました。');
+            document.getElementById('username-input').value = appState.user.name || '管理者';
+        }
+    });
+
+    // PIN作成 (部屋作成)
+    document.getElementById('generate-pin-btn').addEventListener('click', () => {
+        const newPin = Math.floor(10000 + Math.random() * 90000).toString();
+        appState.currentPin = newPin;
+        document.getElementById('current-pin-display').innerText = `現在のPIN: ${newPin}`;
+        saveState();
+        alert(`新しいPIN: ${newPin} が作成されました。みんなに共有してください！`);
+    });
+
+    // 認証ボタン (管理者が他ユーザーを認証するモック機能)
+    function verifyUser(index) {
+        if (appState.user.role === 'admin') {
+            appState.players[index].role = 'verified';
+            saveState();
+            updateLobbyUI();
+        }
+    }
+
+    // --- UI更新ロジック ---
+    function updateLobbyUI() {
+        const ul = document.getElementById('players-ul');
+        ul.innerHTML = '';
+
+        // プレイヤーリストの描画
+        appState.players.forEach((p, index) => {
+            const li = document.createElement('li');
+            li.className = 'player-item';
+            
+            let icon = '';
+            if (p.role === 'admin') icon = '<span class="role-icon icon-admin">✔(金)</span>';
+            if (p.role === 'verified') icon = '<span class="role-icon icon-verified">✔(水)</span>';
+
+            let verifyBtnHTML = '';
+            // 自分が管理者で、相手がゲストなら「認証する」ボタンを表示
+            if (appState.user.role === 'admin' && p.role === 'guest') {
+                verifyBtnHTML = `<button onclick="verifyUser(${index})" style="width:auto; padding:5px; font-size:0.8rem; margin:0;">認証する</button>`;
+            }
+
+            li.innerHTML = `<span>${p.name} ${icon}</span> ${verifyBtnHTML}`;
+            ul.appendChild(li);
+        });
+
+        // 管理者または認証ユーザーのみPIN作成エリアを表示
+        const pinArea = document.getElementById('pin-generation-area');
+        if (appState.user.role === 'admin' || appState.user.role === 'verified') {
+            pinArea.style.display = 'block';
+            if (appState.currentPin) {
+                document.getElementById('current-pin-display').innerText = `現在のPIN: ${appState.currentPin}`;
+            }
+            
+            // ホスト権限としてゲーム開始ボタンを有効化
+            document.getElementById('start-jinrou-btn').disabled = false;
+            document.getElementById('start-ngword-btn').disabled = false;
+        } else {
+            pinArea.style.display = 'none';
+        }
+    }
+
+    // ゲーム画面への遷移テスト
+    document.getElementById('start-jinrou-btn').addEventListener('click', () => {
+        document.getElementById('game-title').innerText = '人狼ゲーム';
+        showScreen('game');
+    });
+
+    document.getElementById('start-ngword-btn').addEventListener('click', () => {
+        document.getElementById('game-title').innerText = 'NGワードゲーム';
+        showScreen('game');
+    });
+
+    document.getElementById('back-to-lobby-btn').addEventListener('click', () => {
+        showScreen('lobby');
+    });
+
+</script>
+</body>
+</html>
